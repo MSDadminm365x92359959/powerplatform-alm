@@ -1,0 +1,72 @@
+name: Export Power Platform Solution
+
+on:
+  workflow_dispatch:
+    inputs:
+      solution_name:
+        description: "Power Platform solution unique name"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  export-solution:
+    runs-on: ubuntu-latest
+
+    env:
+      ENVIRONMENT_URL: ${{ secrets.POWER_PLATFORM_ENVIRONMENT_URL }}
+      CLIENT_ID: ${{ secrets.POWER_PLATFORM_CLIENT_ID }}
+      TENANT_ID: ${{ secrets.POWER_PLATFORM_TENANT_ID }}
+      CLIENT_SECRET: ${{ secrets.POWER_PLATFORM_CLIENT_SECRET }}
+
+    steps:
+      # 1. Get source code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Install Power Platform tools
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      # 3. Export unmanaged solution from DEV
+      - name: Export Solution
+        uses: microsoft/powerplatform-actions/export-solution@v1
+        with:
+          environment-url: ${{ env.ENVIRONMENT_URL }}
+          app-id: ${{ env.CLIENT_ID }}
+          client-secret: ${{ env.CLIENT_SECRET }}
+          tenant-id: ${{ env.TENANT_ID }}
+          solution-name: ${{ inputs.solution_name }}
+          solution-output-file: out/${{ inputs.solution_name }}.zip
+          managed: false
+
+      # 4. Unpack solution
+      - name: Unpack Solution
+        uses: microsoft/powerplatform-actions/unpack-solution@v1
+        with:
+          solution-file: out/${{ inputs.solution_name }}.zip
+          solution-folder: solutions/${{ inputs.solution_name }}
+          solution-type: Unmanaged
+          overwrite-files: true
+
+      # 5. Create branch and commit changes
+      - name: Commit solution to new branch
+        shell: bash
+        run: |
+          BRANCH="solution-${{ inputs.solution_name }}-${{ github.run_number }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$BRANCH"
+          git add "solutions/${{ inputs.solution_name }}"
+
+          if git diff --cached --quiet; then
+            echo "No solution changes detected."
+          else
+            git commit -m "Export ${{ inputs.solution_name }} from DEV"
+            git push origin "$BRANCH"
+            echo "Solution pushed to branch: $BRANCH"
+          fi
